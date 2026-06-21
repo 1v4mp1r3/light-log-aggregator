@@ -1,0 +1,41 @@
+services:
+  loglite:
+    build: ..
+    command: ["--listen", ":8080", "--syslog", ":5514", "--store", "/data/loglite.jsonl", "--retention", "24h"]
+    ports:
+      - "8080:8080"
+      - "5514:5514/udp"
+    volumes:
+      - loglite-data:/data
+
+  http-generator:
+    image: curlimages/curl:8.8.0
+    depends_on:
+      - loglite
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          curl -sS -X POST http://loglite:8080/api/logs \
+            -H 'content-type: application/json' \
+            -d "{\"level\":\"info\",\"message\":\"checkout completed token=demo-secret\",\"labels\":{\"service\":\"shop\",\"env\":\"demo\"},\"fields\":{\"latency_ms\":\"$$(($$RANDOM % 300))\"}}" >/dev/null;
+          sleep 2;
+        done
+
+  syslog-generator:
+    image: alpine:3.22
+    depends_on:
+      - loglite
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache busybox-extras >/dev/null
+        while true; do
+          echo "<13>Jun 21 10:11:12 demo-host sshd[42]: Failed password for root from 10.0.0.5" | nc -u -w1 loglite 5514
+          sleep 4
+        done
+
+volumes:
+  loglite-data:
